@@ -1,0 +1,5 @@
+[
+  {"name": "unet_resnet34", "weights": "/root/gpufree-data/nclassbenchmark/outputs/unet_resnet34/best.pth"},
+  {"name": "deeplabv3plus_resnet34", "weights": "/root/gpufree-data/nclassbenchmark/outputs/deeplabv3plus_resnet34/best.pth"},
+  {"name": "segformer_b0", "weights": "/root/gpufree-data/nclassbenchmark/outputs/segformer_b0/best.pth"}
+]

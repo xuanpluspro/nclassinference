@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from common import atomic, digest, images, write_json, save_image, colorize, overlay, read_mask, confusion, metrics, tile_starts
+from common import atomic, digest, images, write_json, save_image, colorize, overlay, read_mask, confusion, metrics, tile_starts, apply_dataset_config, indexed_image
 
 
 def parse_args(argv=None):
@@ -17,6 +17,7 @@ def parse_args(argv=None):
     p.add_argument('--input', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--model-config', type=Path, help='Explicit config for metadata-free SMP weights')
+    p.add_argument('--dataset-config', type=Path, help='Class-compatible visualization config, e.g. configs/riceseg.json')
     p.add_argument('--split', type=Path, help='One full extension-free image ID per line')
     p.add_argument('--gt', type=Path, help='Original-size indexed GT directory, same relative stem + .png')
     p.add_argument('--mode', choices=['resize','full','tile'], default='resize')
@@ -83,11 +84,12 @@ def run(args):
     manifest_path=out/'meta/run.json'
     if out.exists() and any(out.iterdir()) and not(args.resume or args.overwrite): raise FileExistsError('Use a new output, --resume, or --overwrite')
     model,cfg=load(args.weights,args.trust_checkpoint,args.model_config)
+    if args.dataset_config: cfg=apply_dataset_config(cfg,args.dataset_config)
     model=model.to(device).eval()
     signature=dict(weights_sha256=digest(args.weights),input=str(root),config=cfg,mode=args.mode,size=args.size,
                    tile_size=args.tile_size,overlap=args.overlap,amp=args.amp,alpha=args.alpha,jpg_quality=args.jpg_quality,
                    save_color=args.save_color,gt=str(args.gt.resolve()) if args.gt else None,
-                   split_sha256=digest(args.split) if args.split else None,version=1)
+                   split_sha256=digest(args.split) if args.split else None,version=2)
     state=dict(signature=signature,completed={})
     if args.resume:
         if not manifest_path.exists(): raise FileNotFoundError('No previous meta/run.json')
@@ -116,7 +118,7 @@ def run(args):
             torch.cuda.reset_peak_memory_stats(device); torch.cuda.synchronize(device); start=time.perf_counter()
             mask=predict_image(model,image,cfg,args,torch)
             torch.cuda.synchronize(device); elapsed=time.perf_counter()-start; peak=torch.cuda.max_memory_allocated(device)/1024**3
-            save_image(out/products[0],Image.fromarray(mask))
+            save_image(out/products[0],indexed_image(mask,cfg))
             save_image(out/products[1],overlay(image,mask,cfg,args.alpha),'JPEG',quality=args.jpg_quality)
             if args.save_color: save_image(out/products[2],colorize(mask,cfg['palette'],cfg['ignore_index']))
             row=dict(image=path.relative_to(root).as_posix(),width=image.width,height=image.height,seconds=elapsed,peak_gib=peak,

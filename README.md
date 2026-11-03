@@ -67,6 +67,33 @@ python -u predict.py \
 
 配置不能与已有 checkpoint 的架构、编码器、类别数、类别名称冲突。不猜测自定义结构。
 
+## RiceSeg：使用原始 GT 配色
+
+根据用户对 3078 张 P 模式掩膜的审计，实际出现的类别 0..5 在所有相关文件中颜色一致，无异常文件。`configs/riceseg.json` 已记录这些 RGB 值：
+
+| 类别 ID | RGB | 色值 |
+| --- | --- | --- |
+| 0 | (0, 0, 0) | #000000 |
+| 1 | (0, 180, 70) | #00B446 |
+| 2 | (255, 255, 0) | #FFFF00 |
+| 3 | (255, 0, 0) | #FF0000 |
+| 4 | (0, 120, 210) | #0078D2 |
+| 5 | (128, 40, 170) | #8028AA |
+
+RiceSeg 单模型或批量推理时，追加：
+
+```bash
+--dataset-config configs/riceseg.json
+```
+
+这是显式选择，不会把任意六分类任务自动当作 RiceSeg。程序会核对 checkpoint 的类别数、名称顺序、背景及忽略标签，发生冲突直接报错，不能靠改配色重排模型的类别 ID。类别名称沿用训练配置，不从颜色反推语义。
+
+索引掩膜 `masks/*.png` 现在保存为 **P 模式**：像素仍是原始类别编号 0..5，内嵌上述调色板；不是将 RGB 颜色写成类别值。`colors/*.png` 使用相同颜色。`compare.py` 从结果的 `meta/classes.json` 读取配色，将 GT 和预测按同一规则显示，无需再次传配色参数。叠加图经透明混合及 JPG 压缩，显示颜色自然不等于纯 RGB 色块。
+
+未选择此配置时继续使用 checkpoint 自带的调色板；checkpoint 未保存调色板则采用 VOC 默认配色。原始 GT 不会修改。255 本次未在掩膜像素中出现，仍沿用训练配置的 ignore_index=255，不新增为第七个类别。
+
+旧结果不会自动变色。采用新配色或从旧版 L 模式切换到新版 P 模式后，请用新输出目录，或显式 `--overwrite` 重跑；`--resume` 会拒绝旧的配置/格式版本，防止同一结果目录混用配色。
+
 ## 三种推理模式
 
 | 参数 | 行为 | 适用场景 |
@@ -84,7 +111,7 @@ python -u predict.py \
 以 `outputs/gwfss/unet_resnet34/` 为例：
 
 ```text
-masks/图片名.png              原尺寸类别索引；0..C-1，非 RGB 染色图
+masks/图片名.png              原尺寸 P 模式索引；0..C-1，附带统一调色板
 colors/图片名_color.png       统一颜色的分割图
 overlays/图片名_overlay.jpg   原图叠加图
 per_image.csv                每图时间、显存峰值、各类别像素面积
@@ -169,7 +196,7 @@ python import_masks.py \
 
 模型/预处理/配置依据：[nclassbenchmark](https://github.com/xuanpluspro/nclassbenchmark) 固定提交 `e9091677da7f5866566110c4dd29bcfd357f778c`。使用安装包 `segmentation-models-pytorch==0.5.0` 构建模型，没有复制其模型源码；相关依赖许可由原项目保留。两个 dataset config 和模型清单沿用源仓库；GWFSS 的数值类别含义仍需用户核实，不按论文表格顺序猜测。
 
-14 项轻量测试覆盖文件名、索引掩膜、配色、GT 指标、切块覆盖、拼图和配置检查。未运行 CPU 训练，也未在本环境安装 torch 或进行真实 checkpoint/CUDA 推理；请先按上文跑一张图验证 GPU 环境与权重兼容性。
+21 项轻量测试覆盖文件名、索引掩膜、配色、GT 指标、切块覆盖、拼图和配置检查，包括 RiceSeg 六类 RGB、P 模式保存后编号不变，以及 GT/预测拼图颜色相同。未运行 CPU 训练，也未在本环境安装 torch 或进行真实 checkpoint/CUDA 推理；请先按上文跑一张图验证 GPU 环境与权重兼容性。
 
 ```bash
 python -m unittest discover -s tests -v

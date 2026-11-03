@@ -125,3 +125,34 @@ def tile_starts(length, size, overlap):
     starts = list(range(0,length-size+1,size-overlap))
     if starts[-1] != length-size: starts.append(length-size)
     return starts
+
+
+def apply_dataset_config(cfg, path):
+    """Apply an explicit visualization schema without remapping trained class IDs."""
+    supplied = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+    if not isinstance(supplied, dict): raise ValueError('Dataset config must be a JSON object')
+    allowed = {'num_classes', 'class_names', 'background_index', 'ignore_index', 'palette', 'palette_source', 'note'}
+    if set(supplied) - allowed: raise ValueError('Dataset config must not contain model/architecture settings')
+    for key in ('num_classes', 'class_names', 'background_index', 'ignore_index'):
+        if key in supplied and supplied[key] != cfg[key]:
+            raise ValueError(f'Dataset config conflicts with checkpoint: {key}; class IDs are never remapped')
+    result = dict(cfg)
+    if 'palette' in supplied: result['palette'] = supplied['palette']
+    return validate_schema(result)
+
+
+def indexed_image(mask, cfg):
+    """P-mode PNG: preserve class IDs exactly, attach the visualization palette."""
+    mask = np.asarray(mask)
+    valid = mask != cfg['ignore_index']
+    if mask.ndim != 2 or not np.issubdtype(mask.dtype, np.integer): raise ValueError('Expected integer 2-D mask')
+    if np.any((mask[valid] < 0) | (mask[valid] >= cfg['num_classes'])) or np.any((mask < 0) | (mask > 255)):
+        raise ValueError('Mask labels cannot be represented in a P-mode PNG')
+    # Construct from raw indices: RGB quantization must never change class IDs.
+    image = Image.frombytes('P', (mask.shape[1], mask.shape[0]), mask.astype(np.uint8).tobytes())
+    colors = [0] * 768
+    for i, rgb in enumerate(cfg['palette']): colors[i*3:i*3+3] = list(rgb)
+    ignore = cfg['ignore_index']
+    if 0 <= ignore < 256: colors[ignore*3:ignore*3+3] = [160,160,160]
+    image.putpalette(colors)
+    return image

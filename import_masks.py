@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from common import images, validate_schema, read_mask, save_image, write_json, colorize, overlay
+from common import images, validate_schema, read_mask, save_image, write_json, colorize, overlay, indexed_image
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
             if m.ndim!=2 or m.shape!=(rgb.height,rgb.width) or not set(np.unique(m)).issubset({0,255}): raise ValueError(f'Not original-size binary 0/255 mask: {source}')
             m=(m==255).astype(np.uint8)
         else: m=read_mask(source,rgb.size,cfg)
-        save_image(out/'masks'/(key+'.png'),Image.fromarray(m.astype(np.uint8)))
+        save_image(out/'masks'/(key+'.png'),indexed_image(m,cfg))
         save_image(out/'colors'/(key+'_color.png'),colorize(m,cfg['palette'],cfg['ignore_index']))
         save_image(out/'overlays'/(key+'_overlay.jpg'),overlay(rgb,m,cfg),'JPEG',quality=90)
     write_json(out/'meta/classes.json',cfg)

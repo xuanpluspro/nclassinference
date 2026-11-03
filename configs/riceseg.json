@@ -9,5 +9,38 @@
     "duckweed"
   ],
   "ignore_index": 255,
-  "background_index": 0
+  "background_index": 0,
+  "palette": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      180,
+      70
+    ],
+    [
+      255,
+      255,
+      0
+    ],
+    [
+      255,
+      0,
+      0
+    ],
+    [
+      0,
+      120,
+      210
+    ],
+    [
+      128,
+      40,
+      170
+    ]
+  ],
+  "palette_source": "User-provided audit of 3078 RiceSegnclass P-mode masks: actual used label colors consistent for IDs 0..5; no invalid files. Class names retain training configuration; not inferred from RGB."
 }

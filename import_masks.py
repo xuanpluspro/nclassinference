@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from common import images, validate_schema, read_mask, save_image, write_json, colorize, overlay, indexed_image
+from common import images, validate_schema, read_mask, save_image, write_json, colorize, overlay, indexed_image, save_prediction
 
 
 def main():
@@ -16,6 +16,8 @@ def main():
     p.add_argument('--suffix',default='',help='Mask stem suffix, e.g. _mask')
     p.add_argument('--binary-255',action='store_true',help='Explicitly convert binary 0/255 foreground encoding to 0/1')
     p.add_argument('--split',type=Path)
+    p.add_argument('--save-color',action=argparse.BooleanOptionalAction,default=False)
+    p.add_argument('--save-overlay',action=argparse.BooleanOptionalAction,default=False)
     a=p.parse_args()
     cfg=validate_schema(json.loads(a.class_config.read_text(encoding='utf-8-sig')))
     if a.binary_255 and cfg['num_classes']!=2: p.error('--binary-255 requires two classes')
@@ -34,11 +36,9 @@ def main():
             if m.ndim!=2 or m.shape!=(rgb.height,rgb.width) or not set(np.unique(m)).issubset({0,255}): raise ValueError(f'Not original-size binary 0/255 mask: {source}')
             m=(m==255).astype(np.uint8)
         else: m=read_mask(source,rgb.size,cfg)
-        save_image(out/'masks'/(key+'.png'),indexed_image(m,cfg))
-        save_image(out/'colors'/(key+'_color.png'),colorize(m,cfg['palette'],cfg['ignore_index']))
-        save_image(out/'overlays'/(key+'_overlay.jpg'),overlay(rgb,m,cfg),'JPEG',quality=90)
+        save_prediction(out,key,m,rgb,cfg,a.save_color,a.save_overlay)
     write_json(out/'meta/classes.json',cfg)
-    write_json(out/'meta/import.json',dict(source=str(a.masks.resolve()),binary_255=a.binary_255,suffix=a.suffix,images=len(entries),note='External predictions; original inference settings must be documented separately'))
+    write_json(out/'meta/import.json',dict(source=str(a.masks.resolve()),binary_255=a.binary_255,suffix=a.suffix,save_color=a.save_color,save_overlay=a.save_overlay,images=len(entries),note='External predictions; original inference settings must be documented separately'))
     print(f'Imported {len(entries)} masks into {out}')
 
 if __name__=='__main__': main()

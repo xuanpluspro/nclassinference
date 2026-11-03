@@ -44,6 +44,7 @@ python -u predict.py \
   --input /root/gpufree-data/nclassbenchmark/data/GWFSSnclass/JPEGImages \
   --split /root/gpufree-data/nclassbenchmark/data/GWFSSnclass/ImageSets/test.txt \
   --output outputs/gwfss/unet_resnet34 \
+  --dataset-config configs/gwfss.json \
   --mode resize --max-images 1 --trust-checkpoint
 ```
 
@@ -67,6 +68,27 @@ python -u predict.py \
 
 配置不能与已有 checkpoint 的架构、编码器、类别数、类别名称冲突。不猜测自定义结构。
 
+## GWFSS：已确认类别与本地 GT 配色
+
+用户确认未改动类别数据；1096 张 P 模式掩膜的实测配色全部一致，使用 `configs/gwfss.json`：
+
+| ID | 类别 | RGB | HEX |
+| --- | --- | --- | --- |
+| 0 | background / 背景 | (0, 0, 0) | #000000 |
+| 1 | head / 麦穗 | (50, 255, 132) | #32FF84 |
+| 2 | stem / 茎 | (50, 132, 255) | #3284FF |
+| 3 | leaf / 叶片 | (214, 255, 50) | #D6FF32 |
+
+类别编号依据 [GWFSS 标注说明](https://huggingface.co/datasets/XIANG-Shuai/GWFSS-competition)，颜色使用用户实际读取的 GT 调色板。数据集发布页面的展示颜色可能不同，不能用展示 RGB 替换这里的实测配色。
+
+单模型或批量推理追加：
+
+```bash
+--dataset-config configs/gwfss.json
+```
+
+兼容旧 `nclassbenchmark` checkpoint 中的完整占位名称列表 `[background, class_1, class_2, class_3]`，按同一编号将显示名称补全为 `[background, head, stem, leaf]`；不改变权重、预测通道或类别索引。已有明确名称但顺序冲突时依然报错，不重排类别。只在显式选择 GWFSS 配置时接受这组旧名称。
+
 ## RiceSeg：使用原始 GT 配色
 
 根据用户对 3078 张 P 模式掩膜的审计，实际出现的类别 0..5 在所有相关文件中颜色一致，无异常文件。`configs/riceseg.json` 已记录这些 RGB 值：
@@ -86,7 +108,7 @@ RiceSeg 单模型或批量推理时，追加：
 --dataset-config configs/riceseg.json
 ```
 
-这是显式选择，不会把任意六分类任务自动当作 RiceSeg。程序会核对 checkpoint 的类别数、名称顺序、背景及忽略标签，发生冲突直接报错，不能靠改配色重排模型的类别 ID。类别名称沿用训练配置，不从颜色反推语义。
+这是显式选择，不会把任意六分类任务自动当作 RiceSeg。程序会核对 checkpoint 的类别数、名称顺序、背景及忽略标签，发生冲突直接报错（GWFSS 上文明确列出的旧占位名称除外），不能靠改配色重排模型的类别 ID。类别名称沿用训练配置，不从颜色反推语义。
 
 索引掩膜 `masks/*.png` 现在保存为 **P 模式**：像素仍是原始类别编号 0..5，内嵌上述调色板；不是将 RGB 颜色写成类别值。`colors/*.png` 使用相同颜色。`compare.py` 从结果的 `meta/classes.json` 读取配色，将 GT 和预测按同一规则显示，无需再次传配色参数。叠加图经透明混合及 JPG 压缩，显示颜色自然不等于纯 RGB 色块。
 
@@ -112,8 +134,8 @@ RiceSeg 单模型或批量推理时，追加：
 
 ```text
 masks/图片名.png              原尺寸 P 模式索引；0..C-1，附带统一调色板
-colors/图片名_color.png       统一颜色的分割图
-overlays/图片名_overlay.jpg   原图叠加图
+colors/图片名_color.png       可选 RGB 副本，仅 --save-color 时生成
+overlays/图片名_overlay.jpg   可选叠加图，仅 --save-overlay 时生成
 per_image.csv                每图时间、显存峰值、各类别像素面积
 metrics.json                 仅在提供 --gt 时生成
 meta/classes.json            类别名称、索引与配色
@@ -121,7 +143,7 @@ meta/run.json                权重哈希、推理配置、完成记录
 meta/console.log             日志
 ```
 
-默认保存以上三类图，可用 `--no-save-color` 关闭彩色图。索引掩膜始终保存，供后续拼图及定量分析。图片名不带重复扩展名；子目录结构保留。相同路径主干的不同扩展名会报错，避免覆盖。
+默认只保存 `masks/` 中的 P 模式彩色索引掩膜，以及日志/配置/统计；不生成叠加图或重复的 RGB 彩色副本。掩膜打开即可显示调色板颜色，像素值仍保留类别编号。需要额外文件时加 `--save-color` 或 `--save-overlay`；导入外部掩膜的 `import_masks.py` 使用相同默认设置。论文拼图直接读取 `masks/`，无需这两种副本。图片名不带重复扩展名；子目录结构保留。相同路径主干的不同扩展名会报错，避免覆盖。
 
 - `--resume`：核对权重 SHA256、配置和输入文件大小/修改时间，跳过输出完整的已完成图片。
 - `--overwrite`：重新计算并替换同名输出，重建本次统计；保留其他无关文件。替换不会进回收站。
@@ -194,10 +216,15 @@ python import_masks.py \
 
 ## 来源与验证范围
 
-模型/预处理/配置依据：[nclassbenchmark](https://github.com/xuanpluspro/nclassbenchmark) 固定提交 `e9091677da7f5866566110c4dd29bcfd357f778c`。使用安装包 `segmentation-models-pytorch==0.5.0` 构建模型，没有复制其模型源码；相关依赖许可由原项目保留。两个 dataset config 和模型清单沿用源仓库；GWFSS 的数值类别含义仍需用户核实，不按论文表格顺序猜测。
+模型/预处理/配置依据：[nclassbenchmark](https://github.com/xuanpluspro/nclassbenchmark) 固定提交 `e9091677da7f5866566110c4dd29bcfd357f778c`。使用安装包 `segmentation-models-pytorch==0.5.0` 构建模型，没有复制其模型源码；相关依赖许可由原项目保留。模型清单沿用源仓库；RiceSeg/GWFSS 配置补入用户审计的本地调色板，GWFSS 类别编号依据上述发布说明，并兼容旧占位名称。
 
-21 项轻量测试覆盖文件名、索引掩膜、配色、GT 指标、切块覆盖、拼图和配置检查，包括 RiceSeg 六类 RGB、P 模式保存后编号不变，以及 GT/预测拼图颜色相同。未运行 CPU 训练，也未在本环境安装 torch 或进行真实 checkpoint/CUDA 推理；请先按上文跑一张图验证 GPU 环境与权重兼容性。
+29 项轻量测试覆盖文件名、索引掩膜、配色、GT 指标、切块覆盖、拼图和配置检查，包括 RiceSeg 六类 RGB、P 模式保存后编号不变，以及 GT/预测拼图颜色相同；另覆盖 GWFSS 名称兼容、编号不变与默认仅保存掩膜。未运行 CPU 训练，也未在本环境安装 torch 或进行真实 checkpoint/CUDA 推理；请先按上文跑一张图验证 GPU 环境与权重兼容性。
 
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+
+### 旧输出目录说明
+
+本次默认输出策略已变更，续跑签名也包含 `save_color`、`save_overlay` 和格式版本。旧结果请用新目录或 `--overwrite` 重跑，避免与旧续跑记录混用。`--overwrite` 不会删除已有 `colors/`、`overlays/` 中的旧文件；如果要整理它们，请自行确认后处理。本次修改不删除历史结果，也不改动训练仓库或数据集。

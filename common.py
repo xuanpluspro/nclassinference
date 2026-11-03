@@ -131,12 +131,16 @@ def apply_dataset_config(cfg, path):
     """Apply an explicit visualization schema without remapping trained class IDs."""
     supplied = json.loads(Path(path).read_text(encoding='utf-8-sig'))
     if not isinstance(supplied, dict): raise ValueError('Dataset config must be a JSON object')
-    allowed = {'num_classes', 'class_names', 'background_index', 'ignore_index', 'palette', 'palette_source', 'note'}
+    allowed = {'num_classes', 'class_names', 'background_index', 'ignore_index', 'palette', 'palette_source', 'note', 'legacy_class_names', 'references'}
     if set(supplied) - allowed: raise ValueError('Dataset config must not contain model/architecture settings')
-    for key in ('num_classes', 'class_names', 'background_index', 'ignore_index'):
+    for key in ('num_classes', 'background_index', 'ignore_index'):
         if key in supplied and supplied[key] != cfg[key]:
             raise ValueError(f'Dataset config conflicts with checkpoint: {key}; class IDs are never remapped')
+    names = supplied.get('class_names', cfg['class_names'])
+    if names != cfg['class_names'] and cfg['class_names'] not in supplied.get('legacy_class_names', []):
+        raise ValueError('Dataset config conflicts with checkpoint: class_names; class IDs are never remapped')
     result = dict(cfg)
+    result['class_names'] = names
     if 'palette' in supplied: result['palette'] = supplied['palette']
     return validate_schema(result)
 
@@ -156,3 +160,19 @@ def indexed_image(mask, cfg):
     if 0 <= ignore < 256: colors[ignore*3:ignore*3+3] = [160,160,160]
     image.putpalette(colors)
     return image
+
+
+
+def prediction_products(key, save_color=False, save_overlay=False):
+    products = ['masks/'+key+'.png']
+    if save_color: products.append('colors/'+key+'_color.png')
+    if save_overlay: products.append('overlays/'+key+'_overlay.jpg')
+    return products
+
+
+def save_prediction(out, key, mask, image, cfg, save_color=False, save_overlay=False, alpha=.45, jpg_quality=90):
+    """Always write the colored P-mode mask; additional image copies are opt-in."""
+    out = Path(out)
+    save_image(out/'masks'/(key+'.png'), indexed_image(mask,cfg))
+    if save_color: save_image(out/'colors'/(key+'_color.png'), colorize(mask,cfg['palette'],cfg['ignore_index']))
+    if save_overlay: save_image(out/'overlays'/(key+'_overlay.jpg'), overlay(image,mask,cfg,alpha), 'JPEG', quality=jpg_quality)

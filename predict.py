@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from common import atomic, digest, images, write_json, save_image, colorize, overlay, read_mask, confusion, metrics, tile_starts, apply_dataset_config, indexed_image
+from common import atomic, digest, images, write_json, save_image, colorize, overlay, read_mask, confusion, metrics, tile_starts, apply_dataset_config, indexed_image, prediction_products, save_prediction
 
 
 def parse_args(argv=None):
@@ -28,7 +28,8 @@ def parse_args(argv=None):
     p.add_argument('--amp', action=argparse.BooleanOptionalAction, default=False)
     p.add_argument('--alpha', type=float, default=.45)
     p.add_argument('--jpg-quality', type=int, default=90)
-    p.add_argument('--save-color', action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument('--save-color', action=argparse.BooleanOptionalAction, default=False, help='Optional RGB color PNG copy; the P-mode mask already displays colors')
+    p.add_argument('--save-overlay', action=argparse.BooleanOptionalAction, default=False, help='Optional JPG overlay')
     p.add_argument('--max-images', type=int, default=0)
     p.add_argument('--trust-checkpoint', action='store_true')
     g=p.add_mutually_exclusive_group(); g.add_argument('--resume',action='store_true'); g.add_argument('--overwrite',action='store_true')
@@ -88,8 +89,8 @@ def run(args):
     model=model.to(device).eval()
     signature=dict(weights_sha256=digest(args.weights),input=str(root),config=cfg,mode=args.mode,size=args.size,
                    tile_size=args.tile_size,overlap=args.overlap,amp=args.amp,alpha=args.alpha,jpg_quality=args.jpg_quality,
-                   save_color=args.save_color,gt=str(args.gt.resolve()) if args.gt else None,
-                   split_sha256=digest(args.split) if args.split else None,version=2)
+                   save_color=args.save_color,save_overlay=args.save_overlay,gt=str(args.gt.resolve()) if args.gt else None,
+                   split_sha256=digest(args.split) if args.split else None,version=3)
     state=dict(signature=signature,completed={})
     if args.resume:
         if not manifest_path.exists(): raise FileNotFoundError('No previous meta/run.json')
@@ -107,8 +108,7 @@ def run(args):
         for number,(key,path) in enumerate(selected,1):
             stat=path.stat(); stamp=dict(bytes=stat.st_size,mtime_ns=stat.st_mtime_ns)
             old=state['completed'].get(key)
-            products=['masks/'+key+'.png','overlays/'+key+'_overlay.jpg']
-            if args.save_color: products.append('colors/'+key+'_color.png')
+            products=prediction_products(key,args.save_color,args.save_overlay)
             gt_path=args.gt/(key+'.png') if args.gt else None
             gt_hash=digest(gt_path) if gt_path else None
             if old and old['input_stat']==stamp and old.get('gt_sha256')==gt_hash and all((out/p).is_file() for p in products):
@@ -118,9 +118,7 @@ def run(args):
             torch.cuda.reset_peak_memory_stats(device); torch.cuda.synchronize(device); start=time.perf_counter()
             mask=predict_image(model,image,cfg,args,torch)
             torch.cuda.synchronize(device); elapsed=time.perf_counter()-start; peak=torch.cuda.max_memory_allocated(device)/1024**3
-            save_image(out/products[0],indexed_image(mask,cfg))
-            save_image(out/products[1],overlay(image,mask,cfg,args.alpha),'JPEG',quality=args.jpg_quality)
-            if args.save_color: save_image(out/products[2],colorize(mask,cfg['palette'],cfg['ignore_index']))
+            save_prediction(out,key,mask,image,cfg,args.save_color,args.save_overlay,args.alpha,args.jpg_quality)
             row=dict(image=path.relative_to(root).as_posix(),width=image.width,height=image.height,seconds=elapsed,peak_gib=peak,
                      input_stat=stamp,gt_sha256=gt_hash,class_pixels=np.bincount(mask.ravel(),minlength=cfg['num_classes']).tolist())
             if target is not None: row['confusion']=confusion(mask,target,cfg['num_classes'],cfg['ignore_index']).tolist()
